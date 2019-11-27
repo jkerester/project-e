@@ -1,0 +1,1 @@
+If this prints out, then the readFile function works.
