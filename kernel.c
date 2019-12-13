@@ -11,7 +11,8 @@ void writeSector(char*, int);
 void deleteFile(char*);
 void writeFile(char*, char*, int);
 int compareFileNames(char*, char*, int, int);
-void handleTimerInterrupt(int, int); 
+void handleTimerInterrupt(int, int);
+void killProcess(int); 
 
 //global variables
 int processActive[8];
@@ -22,21 +23,20 @@ int currentProcess;
 main()
 {
 	int i;
-	int j;
 	makeInterrupt21();
 
 	for(i=0; i<8; i++) //initializing process table
 	{
 		processActive[i] = 0;
 	}
-	for(j=0; j<8; j++) //initializing process table
+	for(i=0; i<8; i++) //initializing process table
 	{
-		processStackPointer[j] = 0xff00;
+		processStackPointer[i] = 0xff00;
 	}
 	currentProcess = -1; //initializing process table
 
+	interrupt(0x21, 4, "shell", 0, 0); //test
 	makeTimerInterrupt();
-	interrupt(0x21, 4, "shell", 0, 0);
 
 	while(1);   /*hang up*/ 
 }
@@ -65,7 +65,7 @@ void readString(char* line)
 	while(keyPress != 0xd) //0xd is the enter key
 	{
 		if(keyPress == 0x8 && i>0)//0x8 is the backspace key
-		{ 
+		{
 		        i--;//this decrements array index so that it won't
 			    //save the character deleted by backspace
 		}
@@ -119,8 +119,10 @@ void handleInterrupt21( int ax, int bx, int cx, int dx)
 		deleteFile(bx);
 	}else if(ax == 8){
 		writeFile(bx,cx,dx);
+	}else if(ax == 9){
+		killProcess(bx);
 	}else{
-		printString("Error, ax should be less than 9");
+		printString("Error, ax should be less than 10");
 	}
 }
 
@@ -174,32 +176,49 @@ void readFile(char* name, char* buffer, int* sectorsRead)
 
 void executeProgram(char* name)
 {
+	int freeSpace;
+	int segCalc;
+	int i;
 	int sectorsRead=0;
 	char buffer[13312];
 	int address;
 	readFile(name, buffer, &sectorsRead);
 
 	//this prevents trying to execute a file that doesn't exist
-	if(sectorsRead !=  0)
-	{
+	if(sectorsRead >  0)
+        {
+		int dataseg = setKernelDataSegment();//protection for global variables
+		for(i=0; i<8; i++)//searches through processActive for free spot
+		{
+			if(processActive[i]==0)
+			{
+				freeSpace = i;
+				break;
+			}
+		}
+		restoreDataSegment(dataseg); //protection for global variables
+
+		segCalc = (freeSpace+2)*0x1000; //determine the segment
+
 		for(address = 0; address < 13312; address++)
 		{
-			putInMemory(0x2000, address, buffer[address]);
+			putInMemory(segCalc, address, buffer[address]);
 		}
-		launchProgram(0x2000);
+		initializeProgram(segCalc);//put initializeProgram here
+
+		dataseg = setKernelDataSegment();//protection for global variables
+		processActive[freeSpace] = 1;
+		processStackPointer[freeSpace] = 0xff00;
+		restoreDataSegment(dataseg); //protection for global variables
 	}
 }
 
 void terminate()
 {
-	char shell[6];
-	shell[0] = 's';
-	shell[1] = 'h';
-	shell[2] = 'e';
-	shell[3] = 'l';
-	shell[4] = 'l';
-	shell[5] = '\0';
-	executeProgram(shell);
+	int dataseg = setKernelDataSegment();
+	processActive[currentProcess] = 0;
+	restoreDataSegment(dataseg);
+
 	while(1);
 }
 
@@ -319,9 +338,50 @@ int compareFileNames(char* file1, char* file2, int length, int entryCount)
 
 void handleTimerInterrupt(int segment, int sp)
 {
+	int i;
+
+	int dataseg = setKernelDataSegment();
 	//printChar('T');
-	//printChar('i');
-	//printChar('c');
+        //printChar('i');
+        //printChar('c');
+
+
+	for(i=0; i<8; i++)//draws active process at top right
+        {
+                putInMemory(0xb800,60*2+i*4,i+0x30);
+                if(processActive[i]==1)
+                        putInMemory(0xb800,60*2+i*4+1,0x20);
+                else
+                        putInMemory(0xb800,60*2+i*4+1,0);
+        }
+
+	if(currentProcess != -1)
+	{
+		processStackPointer[currentProcess] = sp;
+	}
+
+	while(1)
+	{
+		currentProcess++;
+		if(currentProcess >= 8)
+		{
+			currentProcess = 0;
+		}
+		if (processActive[currentProcess] == 1)
+		{
+			break;
+		}
+	}
+	segment = (currentProcess+2)*0x1000;
+	sp = processStackPointer[currentProcess];
+	restoreDataSegment(dataseg);
 
 	returnFromTimer(segment, sp);
+}
+
+void killProcess(int id)
+{
+	int dataseg = setKernelDataSegment();
+	processActive[id] = 0;
+	restoreDataSegment(dataseg);
 }

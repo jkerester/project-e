@@ -32,3 +32,5 @@ gcc -o loadFile loadFile.c
 ./loadFile shell
 ./loadFile tstpr1
 ./loadFile tstpr2
+./loadFile number
+./loadFile letter

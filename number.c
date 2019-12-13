@@ -1,5 +1,7 @@
+enableInterrupts();
 main()
 {
+	//enableInterrupts();
 	int i,j,k=1,l;
 	char* msg="Number is 0\r\n";
 
